@@ -1,11 +1,40 @@
 var root = require('find-parent-dir').sync(__dirname, 'package.json');
 var proxyquire = require('proxyquire').noPreserveCache();
-var metadata = require(root + 'lib/metadata').default;
-var chai = require('chai');
-var expect = chai.expect;
-var Joi = require('@hapi/joi');
+var metadata = require(root + 'lib/metadata');
+var expect = require('expect.js');
+var Joi = require('joi');
 
 describe('cli/metadata', function() {
+
+  it('should ignore .DS_STORE files', function(done) {
+
+    var metadata = proxyquire(root + 'lib/metadata', {
+      'file': {
+        'walkSync': function(dir, cb) {
+          cb('/', [], ['.DS_Store']);
+        }
+      }
+    });
+
+    metadata(function(data) {
+      expect(data).to.be.an('array');
+      expect(data).to.have.length(0);
+      done();
+    });
+  });
+
+  it('should throw on malformed metadata', function() {
+
+    var metadata = proxyquire(root + 'lib/metadata', {
+      'fs': {
+        'readFileSync': function() {
+          return '/*! { !*/';
+        }
+      }
+    });
+
+    expect(metadata).to.throwException(/Error Parsing Metadata/);
+  });
 
   it('should not throw when metadata is missing', function() {
 
@@ -15,9 +44,9 @@ describe('cli/metadata', function() {
           return 'sup dude';
         }
       }
-    }).default;
+    });
 
-    expect(metadata).to.not.throw(/Error Parsing Metadata/);
+    expect(metadata).to.not.throwException(/Error Parsing Metadata/);
   });
 
   it('should throw on malformed deps', function() {
@@ -28,9 +57,9 @@ describe('cli/metadata', function() {
           return 'define([[],';
         }
       }
-    }).default;
+    });
 
-    expect(metadata).to.throw(/Couldn't parse dependencies/);
+    expect(metadata).to.throwException(/Couldn't parse dependencies/);
   });
 
   it('should throw if we can\'t find the define', function() {
@@ -38,66 +67,59 @@ describe('cli/metadata', function() {
     var metadata = proxyquire(root + 'lib/metadata', {
       'fs': {
         'readFileSync': function() {
-          return 'define_([]),';
+          return 'defin([]),';
         }
       }
-    }).default;
+    });
 
-    expect(metadata).to.throw(/Couldn't find the define/);
+    expect(metadata).to.throwException(/Couldn't find the define/);
   });
 
-  it('should throw if no name is defined', function() {
+  it('should use amdPath as a fallback for name', function() {
+
+    var metadata = proxyquire(root + 'lib/metadata', {
+      'file': {
+        'walkSync': function(dir, cb) {
+          cb('/', [], ['fakeDetect.js']);
+        }
+      },
+      'fs': {
+        'readFileSync': function() {
+          return '/*! { "property": "fake"}!*/ define([],';
+        }
+      }
+    });
+    var result = metadata();
+
+    expect(result.name).to.equal(result.amdPath);
+  });
+
+  it('should throw if we can\'t find the define', function() {
 
     var metadata = proxyquire(root + 'lib/metadata', {
       'fs': {
         'readFileSync': function() {
-          return '/*!{!*/';
+          return '/*! { "polyfills": ["fake"]}!*/ define([],';
         }
       }
-    }).default;
+    });
 
-    expect(metadata).to.throw(/Minimal metadata not found/);
+    expect(metadata).to.throwException(/Polyfill not found/);
   });
 
-  it('should throw if no property is defined', function() {
+  it('should throw if we can\'t find the define', function() {
 
     var metadata = proxyquire(root + 'lib/metadata', {
       'fs': {
         'readFileSync': function() {
-          return '/*! { "name": "fake"}!*/ define([],';
+          return '/*! { "property": "fake", "cssclass": "realFake"}!*/ define([],';
         }
       }
-    }).default;
-
-    expect(metadata).to.throw(/Minimal metadata not found/);
-  });
-
-  it('should throw if polyfill is incorrectly configured', function() {
-
-    var metadata = proxyquire(root + 'lib/metadata', {
-      'fs': {
-        'readFileSync': function() {
-          return '/*! { "name": "fake", "property": "fake", "polyfills": ["fake"]}!*/ define([],';
-        }
-      }
-    }).default;
-
-    expect(metadata).to.throw(/Polyfill not found/);
-  });
-
-  it('should return null if cssclass is incorrectly configured', function() {
-
-    var metadata = proxyquire(root + 'lib/metadata', {
-      'fs': {
-        'readFileSync': function() {
-          return '/*! { "name": "fake", "property": "fake", "cssclass": "realFake"}!*/ define([],';
-        }
-      }
-    }).default;
+    });
 
     var firstResult = metadata()[0];
 
-    expect(firstResult.cssclass).to.be.equal(null);
+    expect(firstResult.cssclass).to.be(null);
   });
 
   it('should rename `docs` to `doc` when found', function() {
@@ -105,14 +127,14 @@ describe('cli/metadata', function() {
     var metadata = proxyquire(root + 'lib/metadata', {
       'fs': {
         'readFileSync': function() {
-          return '/*! { "name": "fake", "property": "fake", "docs": "originally docs" }!*/ define([],';
+          return '/*! { "docs": "originally docs" }!*/ define([],';
         }
       }
-    }).default;
+    });
 
     var firstResult = metadata()[0];
 
-    expect(firstResult.docs).to.be.equal(undefined);
+    expect(firstResult.docs).to.be(undefined);
     expect(firstResult.doc).to.match(/originally docs/);
   });
 
@@ -121,7 +143,7 @@ describe('cli/metadata', function() {
   });
 
   it('return nothing when given a callback', function() {
-    expect(metadata(function noop() {})).to.be.equal(undefined);
+    expect(metadata(function noop() {})).to.be(undefined);
   });
 
   it('pass the json blob when given a callback', function(done) {
@@ -133,55 +155,56 @@ describe('cli/metadata', function() {
 
   describe('returns an array of valid objects', function() {
     var schema = Joi.object().keys({
-      amdPath: Joi.string().required(),
-      name: Joi.string().required(),
-      doc: Joi.alternatives().try(Joi.string(), null),
+                  amdPath        : Joi.string().required(),
+                  name           : Joi.string().required(),
+                  path           : Joi.string().required(),
+                  doc            : Joi.alternatives().try(Joi.string(), null),
 
-      caniuse: Joi.alternatives().try(Joi.string(), null),
+                  caniuse        : Joi.alternatives().try(Joi.string(), null),
 
-      async: Joi.boolean(),
+                  async          : Joi.boolean(),
 
-      aliases: Joi.array().items(Joi.string()),
-      builderAliases: Joi.array().items(Joi.string()),
-      knownBugs: Joi.array().items(Joi.string()),
-      warnings: Joi.array().items(Joi.string()),
-      authors: Joi.array().items(Joi.string()),
-      tags: Joi.array().items(Joi.string()),
-      deps: Joi.array().items(Joi.string()),
+                  aliases        : Joi.array().includes(Joi.string()),
+                  builderAliases : Joi.array().includes(Joi.string()),
+                  knownBugs      : Joi.array().includes(Joi.string()),
+                  warnings       : Joi.array().includes(Joi.string()),
+                  authors        : Joi.array().includes(Joi.string()),
+                  tags           : Joi.array().includes(Joi.string()),
+                  deps           : Joi.array().includes(Joi.string()),
 
-      notes: Joi.array().items(
-        Joi.object().keys({
-          name: Joi.string().required(),
-          href: Joi.string().required()
-        })
-      ).unique(),
+                  notes          : Joi.array().includes(
+                    Joi.object().keys({
+                      name: Joi.string().required(),
+                      href: Joi.string().required()
+                    })
+                  ).unique(),
 
-      cssclass: Joi.alternatives().try(
-        Joi.string().lowercase(),
-        Joi.array().items(Joi.string().lowercase())
-      ).required(),
+                  cssclass       : Joi.alternatives().try(
+                                    Joi.string().lowercase(),
+                                    Joi.array().includes(Joi.string().lowercase())
+                                  ).required(),
 
-      property: Joi.alternatives().try(
-        Joi.string().lowercase(),
-        Joi.array().items(Joi.string().lowercase())
-      ).required(),
+                  property       : Joi.alternatives().try(
+                                    Joi.string().lowercase(),
+                                    Joi.array().includes(Joi.string().lowercase())
+                                  ).required(),
 
-      polyfills: Joi.array().items(
-        Joi.object().keys({
-          name: Joi.string().required(),
-          authors: Joi.array().items(Joi.string()),
-          notes: Joi.array().items(Joi.string()),
-          href: Joi.string().required(),
-          licenses: Joi.array().items(Joi.string()).required()
-        })
-      ).unique()
-    });
+                  polyfills : Joi.array().includes(
+                                Joi.object().keys({
+                                  name     : Joi.string().required(),
+                                  authors  : Joi.array().includes(Joi.string()),
+                                  notes    : Joi.array().includes(Joi.string()),
+                                  href     : Joi.string().required(),
+                                  licenses : Joi.array().includes(Joi.string()).required()
+                                })
+                              ).unique()
+                });
 
     metadata(function(data) {
       data.forEach(function(obj) {
-        var err = schema.validate(obj, {convert: false}).error;
+        var err = schema.validate(obj).error;
         it('for ' + obj.name, function() {
-          expect(`${obj.name} - ${err}`).to.be.equal(`${obj.name} - ${undefined}`);
+          expect(err).to.be(null);
         });
       });
     });
