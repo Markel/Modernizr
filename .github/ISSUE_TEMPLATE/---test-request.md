@@ -2,7 +2,7 @@
 name: "\U0001F680 Test request"
 about: Suggest a new feature detect
 title: ''
-labels: enhancement
+labels: detect needed
 assignees: ''
 
 ---
