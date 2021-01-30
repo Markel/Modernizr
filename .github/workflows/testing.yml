@@ -1,4 +1,4 @@
-name: Testing on Node ${{ matrix.node-version }} at ${{ matrix.os }}
+name: Testing
 
 on: [push, pull_request]
 
