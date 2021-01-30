@@ -1,4 +1,4 @@
-name: Testing
+name: Testing on Node ${{ matrix.node-version }} at ${{ matrix.os }}
 
 on: [push, pull_request]
 
@@ -21,9 +21,8 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
     - name: Installing dependencies
-      run: | 
-        npm ci
-        npm install -g gulp-cli
+      run: npm ci
+    - run: npm install -g gulp-cli
     - name: Testing Modernizr
       run: npm test
     - name: Sending Coverage
